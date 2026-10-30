@@ -1,7 +1,8 @@
 const $ = (id) => document.getElementById(id);
 const code = location.pathname.split("/").pop();
 const MESSAGES = {
-  waiting: "The nominees will be revealed here, then voting opens.",
+  lobby: "Keep this page open. The first category will appear here.",
+  waiting: "Voting isn't open yet. The nominees are being revealed.",
   voting: "Tap a nominee to vote. You can change your vote until voting closes.",
   closed: "Voting for this category is closed.",
 };
@@ -20,12 +21,14 @@ async function vote(nomineeId) {
 function render(state) {
   document.title = state.name;
   $("session").textContent = state.name;
-  $("title").textContent = state.stage === "finished" ? "Thanks for voting!" : state.category;
+  $("title").textContent =
+    state.stage === "finished" ? "Thanks for voting!" : state.stage === "lobby" ? "We'll start soon" : state.category;
   $("message").textContent = MESSAGES[state.stage] ?? "";
   $("nominees").replaceChildren(
     ...(state.revealed ?? []).map((name) => {
       const item = document.createElement("div");
       item.className = "nominee revealed";
+      item.setAttribute("aria-disabled", "true");
       item.textContent = name;
       return item;
     }),

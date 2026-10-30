@@ -131,7 +131,7 @@ export function createApp(db: Db, config: Config) {
       name: session.name,
       stage: session.stage,
     };
-    if (session.stage !== "finished") body.category = session.category_name;
+    if (session.stage !== "finished" && session.stage !== "lobby") body.category = session.category_name;
     // Attendees get only the nominees revealed so far, and can vote only while voting is open.
     // The number of categories, vote counts and winners are never sent.
     if (session.stage === "waiting") {
@@ -387,10 +387,10 @@ export function createApp(db: Db, config: Config) {
     const { rows } = await db.query(
       `update sessions s set
          revealed_count = 0,
-         stage = case when s.current_position + 1 < t.total then 'waiting' else 'finished' end,
-         current_position = case when s.current_position + 1 < t.total then s.current_position + 1 else s.current_position end
+         stage = case when s.stage = 'lobby' or s.current_position + 1 < t.total then 'waiting' else 'finished' end,
+         current_position = case when s.stage <> 'lobby' and s.current_position + 1 < t.total then s.current_position + 1 else s.current_position end
          from (select count(*)::int as total from categories where session_id = $1) t
-        where s.id = $1 and s.stage in ('waiting', 'closed')
+        where s.id = $1 and s.stage in ('lobby', 'waiting', 'closed')
         returning s.id`,
       [req.params.id],
     );

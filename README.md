@@ -8,6 +8,7 @@ Each category moves through these stages, controlled by the admin:
 
 | Stage | Attendee sees |
 | --- | --- |
+| `lobby` | A "starts soon" message, until the admin shows the first category |
 | `waiting` | Category name, plus nominees as the admin reveals them one by one. Voting opens once all are revealed. |
 | `voting` | Nominees, can vote or change their vote |
 | `closed` | Voting closed message, nominees hidden |

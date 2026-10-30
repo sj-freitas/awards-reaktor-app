@@ -21,6 +21,7 @@ beforeEach(async () => {
   const pglite = new PGlite();
   await pglite.exec(readFileSync("supabase/migrations/001_init_voting.sql", "utf8"));
   await pglite.exec(readFileSync("supabase/migrations/002_add_revealed_count.sql", "utf8"));
+  await pglite.exec(readFileSync("supabase/migrations/003_add_lobby_stage.sql", "utf8"));
   const db: Db = { query: (sql, params) => pglite.query(sql, params as any[]) as any };
   app = createApp(db, {
     appUrl: "http://localhost:3000",
@@ -46,6 +47,7 @@ async function startVoting(id: string, expected = 200) {
 async function createSession() {
   const res = await admin("post", "/api/admin/sessions").send({ name: "Awards", ballot });
   expect(res.status).toBe(201);
+  await admin("post", `/api/admin/sessions/${res.body.id}/next`).expect(200);
   return res.body as { id: string; code: string };
 }
 
@@ -113,6 +115,22 @@ describe("ballot loading", () => {
 });
 
 describe("voting flow", () => {
+  it("shows no category until the admin presses for the first one", async () => {
+    const created = await admin("post", "/api/admin/sessions").send({ name: "Awards", ballot });
+    const { id, code } = created.body;
+
+    const lobby = await request(app).get(`/api/s/${code}`);
+    expect(lobby.body.stage).toBe("lobby");
+    expect(JSON.stringify(lobby.body)).not.toMatch(/Best|Ada/);
+    await admin("post", `/api/admin/sessions/${id}/reveal`).expect(409);
+    await admin("post", `/api/admin/sessions/${id}/start`).expect(409);
+
+    const first = await admin("post", `/api/admin/sessions/${id}/next`).expect(200);
+    expect(first.body).toMatchObject({ stage: "waiting", category: "Best Colleague", position: 1 });
+    const shown = await request(app).get(`/api/s/${code}`);
+    expect(shown.body.category).toBe("Best Colleague");
+  });
+
   it("reveals nominees one at a time and blocks voting until all are shown", async () => {
     const { id, code } = await createSession();
     const voter = request.agent(app);

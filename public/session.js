@@ -3,6 +3,7 @@ const id = location.pathname.split("/").pop();
 const api = `/api/admin/sessions/${id}`;
 
 const STAGE_TEXT = {
+  lobby: ["Welcome screen", "They see a message that it starts soon. No category yet."],
   waiting: ["Category shown", "They see the category name. Nominees are hidden."],
   voting: ["Voting open", "They see the nominees and can vote."],
   closed: ["Voting closed", "They see that voting is closed. Nominees are hidden again."],
@@ -63,16 +64,17 @@ function render(state) {
   const canReveal = state.stage === "waiting" && state.revealedCount < total;
   $("reveal").hidden = !canReveal;
   $("reveal").textContent = `Show next nominee (${state.revealedCount + 1} of ${total})`;
-  $("start").hidden = state.stage === "voting" || canReveal;
+  const lobby = state.stage === "lobby";
+  $("start").hidden = state.stage === "voting" || canReveal || lobby;
   $("start").disabled = total === 0;
   $("start").textContent = state.stage === "closed" ? "Reopen voting" : "Start voting";
   $("start").className = state.stage === "closed" ? "secondary" : "";
   $("stop").hidden = state.stage !== "voting";
   $("next").hidden = state.stage === "voting";
-  $("next").className = state.stage === "closed" ? "" : "secondary";
-  $("next").textContent = state.position === state.total ? "Finish session" : "Next category";
+  $("next").className = state.stage === "closed" || lobby ? "" : "secondary";
+  $("next").textContent = lobby ? "Show first category" : state.position === state.total ? "Finish session" : "Next category";
   // The primary action comes first.
-  if (state.stage === "closed") $("actions").prepend($("next"));
+  if (state.stage === "closed" || lobby) $("actions").prepend($("next"));
   else $("actions").prepend(canReveal ? $("reveal") : $("start"));
 
   $("nominee-section").hidden = finished;
@@ -80,7 +82,7 @@ function render(state) {
     ...state.nominees.map((nominee, index) => {
       const li = document.createElement("li");
       li.textContent = nominee.name;
-      if (state.stage === "waiting" && index >= state.revealedCount) {
+      if ((state.stage === "waiting" || state.stage === "lobby") && index >= state.revealedCount) {
         const hidden = document.createElement("span");
         hidden.className = "muted";
         hidden.textContent = " · not revealed yet";

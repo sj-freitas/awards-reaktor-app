@@ -87,5 +87,9 @@ ul.plain li:first-child { border-top: 0; }
   display: block; width: 100%; text-align: left; margin-top: 8px; min-height: 60px; border-radius: 12px;
   background: transparent; color: #fff; border: 1px solid var(--line);
 }
-.nominee.revealed { display: flex; align-items: center; padding: 10px 24px; font-weight: 500; }
+/* Greyed out and dashed so it can't be mistaken for a nominee you can vote for yet. */
+.nominee.revealed {
+  display: flex; align-items: center; padding: 10px 24px; font-weight: 500;
+  color: #8c8c8c; background: #161616; border: 1px dashed rgba(255, 255, 255, .18); cursor: not-allowed;
+}
 .nominee.selected { background: #fff; color: #000; border-color: #fff; }
