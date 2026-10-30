@@ -32,6 +32,9 @@ export interface Config {
 const ADMIN_COOKIE = "admin";
 const VOTER_COOKIE = "voter";
 const OAUTH_STATE_COOKIE = "oauth_state";
+const OAUTH_RETURN_COOKIE = "oauth_return";
+// Only admin pages on this site, so sign-in can't be used to redirect elsewhere.
+const RETURN_PATH = /^\/admin\/sessions\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VOTER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
@@ -64,9 +67,15 @@ export function createApp(db: Db, config: Config) {
 
   // --- Google sign-in ---
 
-  app.get("/auth/google", (_req, res) => {
+  app.get("/auth/google", (req, res) => {
     const state = randomToken();
     setCookie(res, OAUTH_STATE_COOKIE, state, 10 * 60 * 1000, secure);
+    const { returnTo } = req.query;
+    if (typeof returnTo === "string" && RETURN_PATH.test(returnTo)) {
+      setCookie(res, OAUTH_RETURN_COOKIE, returnTo, 10 * 60 * 1000, secure);
+    } else {
+      res.clearCookie(OAUTH_RETURN_COOKIE, { path: "/" });
+    }
     res.redirect(googleAuthUrl(config.googleClientId, redirectUri, state));
   });
 
@@ -84,7 +93,9 @@ export function createApp(db: Db, config: Config) {
       return;
     }
     setCookie(res, ADMIN_COOKIE, adminCookieValue(email, config.sessionSecret), ADMIN_TTL_MS, secure);
-    res.redirect("/admin");
+    const returnTo = readCookie(req, OAUTH_RETURN_COOKIE);
+    res.clearCookie(OAUTH_RETURN_COOKIE, { path: "/" });
+    res.redirect(returnTo && RETURN_PATH.test(returnTo) ? returnTo : "/admin");
   });
 
   app.post("/auth/logout", (_req, res) => {
@@ -137,6 +148,20 @@ export function createApp(db: Db, config: Config) {
       body.myVote = mine.rows[0]?.nominee_id ?? null;
     }
     res.json(body);
+  });
+
+  app.get("/api/s/:code/qr", async (req, res) => {
+    const { rows } = await db.query(`select code from sessions where code = $1`, [req.params.code]);
+    if (rows.length === 0) {
+      res.status(404).json({ error: "This voting session doesn't exist." });
+      return;
+    }
+    const svg = await QRCode.toString(`${config.appUrl}/s/${rows[0].code}`, {
+      type: "svg",
+      margin: 2,
+      errorCorrectionLevel: "M",
+    });
+    res.type("image/svg+xml").send(svg);
   });
 
   app.post("/api/s/:code/vote", async (req, res) => {
@@ -223,6 +248,38 @@ export function createApp(db: Db, config: Config) {
     res.status(201).json(rows[0]);
   });
 
+  // Winners of each category whose voting has ended. A tie returns every top nominee.
+  async function categoryWinners(id: string) {
+    const { rows } = await db.query(
+      `with tallies as (
+         select c.id, c.position, c.name as category, n.name as nominee, n.position as nominee_position,
+                count(v.voter_id)::int as votes
+           from sessions s
+           join categories c on c.session_id = s.id
+           left join nominees n on n.category_id = c.id
+           left join votes v on v.nominee_id = n.id
+          where s.id = $1
+            and (c.position < s.current_position
+                 or (c.position = s.current_position and s.stage in ('closed', 'finished')))
+          group by c.id, c.position, c.name, n.name, n.position
+       ), ranked as (
+         select *, max(votes) over (partition by id) as top from tallies
+       )
+       select position, category, nominee, votes = top and votes > 0 as won
+         from ranked
+        order by position, nominee_position`,
+      [id],
+    );
+    const categories = new Map<number, { position: number; category: string; winners: string[] }>();
+    for (const row of rows) {
+      if (!categories.has(row.position)) {
+        categories.set(row.position, { position: row.position + 1, category: row.category, winners: [] });
+      }
+      if (row.won) categories.get(row.position)!.winners.push(row.nominee);
+    }
+    return [...categories.values()];
+  }
+
   async function adminState(id: string) {
     const { rows } = await db.query(
       `select s.id, s.code, s.name, s.stage, s.current_position, c.id as category_id, c.name as category_name,
@@ -248,7 +305,9 @@ export function createApp(db: Db, config: Config) {
       category: session.stage === "finished" ? null : session.category_name,
       voteCount: session.vote_count,
       nominees: session.stage === "finished" ? [] : nominees.rows,
+      winners: await categoryWinners(id),
       attendeeUrl: `${config.appUrl}/s/${session.code}`,
+      qrPageUrl: `${config.appUrl}/qr/${session.code}`,
     };
   }
 
@@ -274,16 +333,6 @@ export function createApp(db: Db, config: Config) {
 
   app.get("/api/admin/sessions/:id", async (req, res) => {
     await respondWithState(req.params.id, res);
-  });
-
-  app.get("/api/admin/sessions/:id/qr", async (req, res) => {
-    const state = await adminState(req.params.id);
-    if (!state) {
-      res.status(404).json({ error: "Session not found." });
-      return;
-    }
-    const svg = await QRCode.toString(state.attendeeUrl, { type: "svg", margin: 2, errorCorrectionLevel: "M" });
-    res.type("image/svg+xml").send(svg);
   });
 
   app.post("/api/admin/sessions/:id/start", async (req, res) => {
@@ -341,26 +390,6 @@ export function createApp(db: Db, config: Config) {
     await respondWithState(req.params.id, res, rows.length ? undefined : `Couldn't add "${name}": it's already nominated, or the session has finished.`);
   });
 
-  app.get("/api/admin/sessions/:id/results", async (req, res) => {
-    const { rows } = await db.query(
-      `select c.position, c.name as category, n.id as nominee_id, n.name as nominee, count(v.voter_id)::int as votes
-         from categories c
-         left join nominees n on n.category_id = c.id
-         left join votes v on v.nominee_id = n.id
-        where c.session_id = $1
-        group by c.position, c.name, n.id, n.name, n.position
-        order by c.position, votes desc, n.position`,
-      [req.params.id],
-    );
-    const categories = new Map<number, { name: string; nominees: { name: string; votes: number }[] }>();
-    for (const row of rows) {
-      if (!categories.has(row.position)) categories.set(row.position, { name: row.category, nominees: [] });
-      const category = categories.get(row.position)!;
-      if (row.nominee_id) category.nominees.push({ name: row.nominee, votes: row.votes });
-    }
-    res.json({ categories: [...categories.values()] });
-  });
-
   // --- Pages ---
 
   app.get("/", (_req, res) => {
@@ -369,6 +398,7 @@ export function createApp(db: Db, config: Config) {
   app.get("/admin", publicPage("admin.html"));
   app.get("/admin/sessions/:id", publicPage("session.html"));
   app.get("/s/:code", publicPage("attendee.html"));
+  app.get("/qr/:code", publicPage("qr.html"));
   app.use(express.static(publicDir(), { index: false }));
 
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

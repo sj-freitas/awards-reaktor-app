@@ -75,6 +75,22 @@ describe("admin access", () => {
     expect(ok.headers["set-cookie"]?.toString()).toContain("admin=");
   });
 
+  it("returns to the requested session after sign-in, but never off-site", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+      new Response(JSON.stringify(url.includes("token") ? { access_token: "t" } : { email: ADMIN, email_verified: true })),
+    ));
+    const signIn = async (returnTo: string) => {
+      const agent = request.agent(app);
+      const start = await agent.get(`/auth/google?returnTo=${encodeURIComponent(returnTo)}`);
+      const state = new URL(start.headers.location).searchParams.get("state");
+      return agent.get(`/auth/google/callback?code=c&state=${state}`);
+    };
+    const session = "/admin/sessions/05d49577-1e52-4aad-9349-d09b3cd9df13";
+    expect((await signIn(session)).headers.location).toBe(session);
+    expect((await signIn("https://evil.example")).headers.location).toBe("/admin");
+    expect((await signIn("//evil.example")).headers.location).toBe("/admin");
+  });
+
   it("rejects a callback whose state doesn't match", async () => {
     const res = await request(app).get("/auth/google/callback?code=c&state=wrong");
     expect(res.headers.location).toBe("/admin?error=signin");
@@ -126,11 +142,30 @@ describe("voting flow", () => {
     await a.post(`/api/s/${code}/vote`).send({ nomineeId: nominees[1].id }).expect(200);
     await b.post(`/api/s/${code}/vote`).send({ nomineeId: nominees[1].id }).expect(200);
 
-    const results = await admin("get", `/api/admin/sessions/${id}/results`);
-    expect(results.body.categories[0].nominees).toEqual([
-      { name: "Grace", votes: 2 },
-      { name: "Ada", votes: 0 },
-    ]);
+    const open = await admin("get", `/api/admin/sessions/${id}`);
+    expect(open.body.voteCount).toBe(2);
+    expect(open.body.winners).toEqual([]);
+
+    const closed = await admin("post", `/api/admin/sessions/${id}/stop`);
+    expect(closed.body.winners).toEqual([{ position: 1, category: "Best Colleague", winners: ["Grace"] }]);
+  });
+
+  it("names every top nominee on a tie, and no winner without votes", async () => {
+    const { id, code } = await createSession();
+    await admin("post", `/api/admin/sessions/${id}/start`);
+    const a = request.agent(app);
+    const b = request.agent(app);
+    const { nominees } = (await a.get(`/api/s/${code}`)).body;
+    await a.post(`/api/s/${code}/vote`).send({ nomineeId: nominees[0].id }).expect(200);
+    await b.post(`/api/s/${code}/vote`).send({ nomineeId: nominees[1].id }).expect(200);
+    const tied = await admin("post", `/api/admin/sessions/${id}/stop`);
+    expect(tied.body.winners[0].winners).toEqual(["Ada", "Grace"]);
+
+    await admin("post", `/api/admin/sessions/${id}/next`);
+    await admin("post", `/api/admin/sessions/${id}/nominees`).send({ name: "Idea" });
+    await admin("post", `/api/admin/sessions/${id}/start`);
+    const none = await admin("post", `/api/admin/sessions/${id}/stop`);
+    expect(none.body.winners[1]).toEqual({ position: 2, category: "Best Idea", winners: [] });
   });
 
   it("rejects votes when closed or for another category's nominee", async () => {
@@ -175,10 +210,12 @@ describe("voting flow", () => {
     expect(attendee.body.category).toBeUndefined();
   });
 
-  it("serves a QR code pointing at the attendee page", async () => {
-    const { id } = await createSession();
-    const res = await admin("get", `/api/admin/sessions/${id}/qr`).expect(200);
+  it("serves the QR code and its page without sign-in", async () => {
+    const { code } = await createSession();
+    const res = await request(app).get(`/api/s/${code}/qr`).expect(200);
     expect(res.headers["content-type"]).toContain("image/svg+xml");
+    await request(app).get(`/qr/${code}`).expect(200);
+    await request(app).get("/api/s/nope/qr").expect(404);
   });
 
   it("returns 404 for unknown codes and ids", async () => {

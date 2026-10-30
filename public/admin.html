@@ -4,26 +4,27 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Awards Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300&family=Hanken+Grotesk:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<header class="site-header">
+  <a class="wordmark" href="/admin">Reaktor</a>
+  <span class="label">Awards admin</span>
+</header>
 <main>
-  <h1>Awards admin</h1>
-
-  <section id="signin" class="card" hidden>
-    <p>Sign in with your allowed Google account.</p>
-    <a class="button" href="/auth/google">Sign in with Google</a>
+  <section id="signin" hidden>
+    <h1>Run the awards.</h1>
+    <p class="muted">Sign in with your allowed Google account.</p>
+    <a id="signin-link" class="button" href="/auth/google">Sign in with Google</a>
     <p id="signin-error" class="error"></p>
   </section>
 
   <div id="app" hidden>
-    <div class="row spread">
-      <span id="me" class="muted"></span>
-      <button id="logout" class="secondary">Sign out</button>
-    </div>
-
-    <section class="card">
-      <h2>New session</h2>
+    <h1>New session</h1>
+    <section>
       <label for="name">Session name</label>
       <input id="name" placeholder="Reaktor Awards 2026">
       <label for="file">Categories and nominees (JSON file)</label>
@@ -37,13 +38,18 @@
 }'></textarea>
       <p id="preview" class="muted"></p>
       <p id="create-error" class="error"></p>
-      <button id="create">Create session and QR code</button>
+      <button id="create">Create session</button>
     </section>
 
-    <section class="card">
+    <section class="section" style="margin-top: 32px">
       <h2>Sessions</h2>
       <ul id="sessions" class="plain"></ul>
     </section>
+
+    <div class="row spread section">
+      <span id="me" class="muted"></span>
+      <button id="logout" class="secondary">Sign out</button>
+    </div>
   </div>
 </main>
 <script src="/admin.js"></script>

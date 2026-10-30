@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scan to Vote</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300&family=Hanken+Grotesk:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main class="qr-page" style="max-width: none; padding: 16px">
+  <h1 id="title">Scan to vote</h1>
+  <img id="qr" alt="QR code that opens the voting page">
+  <p id="url" class="muted"></p>
+</main>
+<script>
+  const code = location.pathname.split("/").pop();
+  const qr = document.getElementById("qr");
+  qr.src = `/api/s/${code}/qr`;
+  qr.onerror = () => {
+    qr.hidden = true;
+    document.getElementById("title").textContent = "This voting session doesn't exist.";
+  };
+  document.getElementById("url").textContent = `${location.host}/s/${code}`;
+</script>
+</body>
+</html>

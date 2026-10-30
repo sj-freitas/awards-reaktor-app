@@ -42,7 +42,10 @@ async function init() {
   const me = await fetch("/api/admin/me");
   if (!me.ok) {
     $("signin").hidden = false;
-    const error = new URLSearchParams(location.search).get("error");
+    const params = new URLSearchParams(location.search);
+    const returnTo = params.get("returnTo");
+    if (returnTo) $("signin-link").href = `/auth/google?returnTo=${encodeURIComponent(returnTo)}`;
+    const error = params.get("error");
     if (error === "denied") $("signin-error").textContent = "That Google account isn't allowed to use the admin.";
     if (error === "signin") $("signin-error").textContent = "Sign-in failed. Please try again.";
     return;
