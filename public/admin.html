@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Awards Admin</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <h1>Awards admin</h1>
+
+  <section id="signin" class="card" hidden>
+    <p>Sign in with your allowed Google account.</p>
+    <a class="button" href="/auth/google">Sign in with Google</a>
+    <p id="signin-error" class="error"></p>
+  </section>
+
+  <div id="app" hidden>
+    <div class="row spread">
+      <span id="me" class="muted"></span>
+      <button id="logout" class="secondary">Sign out</button>
+    </div>
+
+    <section class="card">
+      <h2>New session</h2>
+      <label for="name">Session name</label>
+      <input id="name" placeholder="Reaktor Awards 2026">
+      <label for="file">Categories and nominees (JSON file)</label>
+      <input id="file" type="file" accept="application/json,.json">
+      <label for="json">Or paste the JSON</label>
+      <textarea id="json" spellcheck="false" placeholder='{
+  "categories": [
+    { "name": "Best Colleague", "nominees": ["Ada", "Grace"] },
+    { "name": "Best Idea", "nominees": ["Ship it", "Nap room"] }
+  ]
+}'></textarea>
+      <p id="preview" class="muted"></p>
+      <p id="create-error" class="error"></p>
+      <button id="create">Create session and QR code</button>
+    </section>
+
+    <section class="card">
+      <h2>Sessions</h2>
+      <ul id="sessions" class="plain"></ul>
+    </section>
+  </div>
+</main>
+<script src="/admin.js"></script>
+</body>
+</html>

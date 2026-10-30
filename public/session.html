@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Awards Session</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <p><a href="/admin">All sessions</a></p>
+  <h1 id="name"></h1>
+  <p id="load-error" class="error"></p>
+
+  <section class="card">
+    <h2>What attendees see now</h2>
+    <p><span id="stage" class="stage"></span></p>
+    <p id="stage-text" class="muted"></p>
+  </section>
+
+  <section class="card">
+    <h2 id="category"></h2>
+    <p id="progress" class="muted"></p>
+    <div class="row">
+      <button id="start">Start voting</button>
+      <button id="stop">Stop voting</button>
+      <button id="next" class="secondary">Next category</button>
+    </div>
+    <p id="action-error" class="error"></p>
+    <h2>Nominees</h2>
+    <ul id="nominees" class="plain"></ul>
+    <form id="add-form" class="row">
+      <input id="nominee-name" class="grow" placeholder="Add a nominee" aria-label="Nominee name">
+      <button class="secondary">Add</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Join QR code</h2>
+    <img id="qr" class="qr" alt="QR code for the attendee voting page">
+    <p><a id="url"></a></p>
+    <button id="qr-open" class="secondary">Show full screen</button>
+  </section>
+
+  <section class="card">
+    <div class="row spread">
+      <h2>Results</h2>
+      <button id="results-toggle" class="secondary">Show results</button>
+    </div>
+    <div id="results" hidden></div>
+  </section>
+</main>
+
+<div id="qr-full" class="qr-full" hidden>
+  <img id="qr-large" alt="QR code for the attendee voting page">
+  <strong id="qr-caption"></strong>
+  <span>Click anywhere to close</span>
+</div>
+<script src="/session.js"></script>
+</body>
+</html>
