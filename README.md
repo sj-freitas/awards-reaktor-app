@@ -8,7 +8,7 @@ Each category moves through these stages, controlled by the admin:
 
 | Stage | Attendee sees |
 | --- | --- |
-| `waiting` | Category name, nominees hidden |
+| `waiting` | Category name, plus nominees as the admin reveals them one by one. Voting opens once all are revealed. |
 | `voting` | Nominees, can vote or change their vote |
 | `closed` | Voting closed message, nominees hidden |
 | `finished` | Thank-you message (after the last category) |

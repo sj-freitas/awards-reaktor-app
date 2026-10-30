@@ -87,4 +87,5 @@ ul.plain li:first-child { border-top: 0; }
   display: block; width: 100%; text-align: left; margin-top: 8px; min-height: 60px; border-radius: 12px;
   background: transparent; color: #fff; border: 1px solid var(--line);
 }
+.nominee.revealed { display: flex; align-items: center; padding: 10px 24px; font-weight: 500; }
 .nominee.selected { background: #fff; color: #000; border-color: #fff; }

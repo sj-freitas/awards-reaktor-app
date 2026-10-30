@@ -114,8 +114,7 @@ export function createApp(db: Db, config: Config) {
 
   app.get("/api/s/:code", async (req, res) => {
     const { rows } = await db.query(
-      `select s.name, s.stage, s.current_position, c.id as category_id, c.name as category_name,
-              (select count(*)::int from categories where session_id = s.id) as total
+      `select s.name, s.stage, s.revealed_count, c.id as category_id, c.name as category_name
          from sessions s
          left join categories c on c.session_id = s.id and c.position = s.current_position
         where s.code = $1`,
@@ -131,11 +130,17 @@ export function createApp(db: Db, config: Config) {
     const body: Record<string, unknown> = {
       name: session.name,
       stage: session.stage,
-      total: session.total,
-      position: session.current_position + 1,
     };
     if (session.stage !== "finished") body.category = session.category_name;
-    // Nominees exist for attendees only while voting is open. Counts and winners are never sent.
+    // Attendees get only the nominees revealed so far, and can vote only while voting is open.
+    // The number of categories, vote counts and winners are never sent.
+    if (session.stage === "waiting") {
+      const revealed = await db.query(
+        `select name from nominees where category_id = $1 order by position limit $2`,
+        [session.category_id, session.revealed_count],
+      );
+      body.revealed = revealed.rows.map((nominee) => nominee.name);
+    }
     if (session.stage === "voting") {
       const nominees = await db.query(`select id, name from nominees where category_id = $1 order by position`, [
         session.category_id,
@@ -282,7 +287,8 @@ export function createApp(db: Db, config: Config) {
 
   async function adminState(id: string) {
     const { rows } = await db.query(
-      `select s.id, s.code, s.name, s.stage, s.current_position, c.id as category_id, c.name as category_name,
+      `select s.id, s.code, s.name, s.stage, s.current_position, s.revealed_count,
+              c.id as category_id, c.name as category_name,
               (select count(*)::int from categories where session_id = s.id) as total,
               (select count(*)::int from votes where category_id = c.id) as vote_count
          from sessions s
@@ -304,6 +310,7 @@ export function createApp(db: Db, config: Config) {
       total: session.total,
       category: session.stage === "finished" ? null : session.category_name,
       voteCount: session.vote_count,
+      revealedCount: session.revealed_count,
       nominees: session.stage === "finished" ? [] : nominees.rows,
       winners: await categoryWinners(id),
       attendeeUrl: `${config.appUrl}/s/${session.code}`,
@@ -335,19 +342,37 @@ export function createApp(db: Db, config: Config) {
     await respondWithState(req.params.id, res);
   });
 
-  app.post("/api/admin/sessions/:id/start", async (req, res) => {
+  app.post("/api/admin/sessions/:id/reveal", async (req, res) => {
     const { rows } = await db.query(
-      `update sessions s set stage = 'voting'
-        where s.id = $1 and s.stage in ('waiting', 'closed')
-          and exists (
-            select 1 from nominees n
+      `update sessions s set revealed_count = s.revealed_count + 1
+        where s.id = $1 and s.stage = 'waiting'
+          and s.revealed_count < (
+            select count(*) from nominees n
               join categories c on c.id = n.category_id
              where c.session_id = s.id and c.position = s.current_position
           )
         returning s.id`,
       [req.params.id],
     );
-    await respondWithState(req.params.id, res, rows.length ? undefined : "Voting can't start: it needs a category with at least one nominee.");
+    await respondWithState(req.params.id, res, rows.length ? undefined : "There's no nominee left to reveal.");
+  });
+
+  // Voting first opens once every nominee is revealed. Reopening after a stop needs no new reveal.
+  app.post("/api/admin/sessions/:id/start", async (req, res) => {
+    const { rows } = await db.query(
+      `update sessions s set stage = 'voting'
+        from (
+          select count(*)::int as nominees from nominees n
+            join categories c on c.id = n.category_id
+            join sessions cs on cs.id = c.session_id and cs.current_position = c.position
+           where cs.id = $1
+        ) t
+        where s.id = $1 and t.nominees > 0
+          and (s.stage = 'closed' or (s.stage = 'waiting' and s.revealed_count >= t.nominees))
+        returning s.id`,
+      [req.params.id],
+    );
+    await respondWithState(req.params.id, res, rows.length ? undefined : "Voting can't start until every nominee is revealed.");
   });
 
   app.post("/api/admin/sessions/:id/stop", async (req, res) => {
@@ -361,6 +386,7 @@ export function createApp(db: Db, config: Config) {
   app.post("/api/admin/sessions/:id/next", async (req, res) => {
     const { rows } = await db.query(
       `update sessions s set
+         revealed_count = 0,
          stage = case when s.current_position + 1 < t.total then 'waiting' else 'finished' end,
          current_position = case when s.current_position + 1 < t.total then s.current_position + 1 else s.current_position end
          from (select count(*)::int as total from categories where session_id = $1) t

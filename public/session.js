@@ -47,8 +47,10 @@ function render(state) {
   document.title = state.name;
   $("session-name").textContent = state.name;
   const [label, text] = STAGE_TEXT[state.stage];
-  $("stage").textContent = label;
-  $("stage-text").textContent = text;
+  const total = state.nominees.length;
+  const revealing = state.stage === "waiting" && state.revealedCount > 0;
+  $("stage").textContent = revealing ? "Revealing nominees" : label;
+  $("stage-text").textContent = revealing ? `They see the category and ${state.revealedCount} of ${total} nominees.` : text;
 
   const finished = state.stage === "finished";
   $("category").textContent = finished ? "All categories done" : state.category;
@@ -58,8 +60,11 @@ function render(state) {
 
   // Only the moves that make sense right now, so the right one is easy to hit on a phone.
   $("actions").hidden = finished;
-  $("start").hidden = state.stage === "voting";
-  $("start").disabled = state.nominees.length === 0;
+  const canReveal = state.stage === "waiting" && state.revealedCount < total;
+  $("reveal").hidden = !canReveal;
+  $("reveal").textContent = `Show next nominee (${state.revealedCount + 1} of ${total})`;
+  $("start").hidden = state.stage === "voting" || canReveal;
+  $("start").disabled = total === 0;
   $("start").textContent = state.stage === "closed" ? "Reopen voting" : "Start voting";
   $("start").className = state.stage === "closed" ? "secondary" : "";
   $("stop").hidden = state.stage !== "voting";
@@ -68,13 +73,19 @@ function render(state) {
   $("next").textContent = state.position === state.total ? "Finish session" : "Next category";
   // The primary action comes first.
   if (state.stage === "closed") $("actions").prepend($("next"));
-  else $("actions").prepend($("start"));
+  else $("actions").prepend(canReveal ? $("reveal") : $("start"));
 
   $("nominee-section").hidden = finished;
   $("nominees").replaceChildren(
-    ...state.nominees.map((nominee) => {
+    ...state.nominees.map((nominee, index) => {
       const li = document.createElement("li");
       li.textContent = nominee.name;
+      if (state.stage === "waiting" && index >= state.revealedCount) {
+        const hidden = document.createElement("span");
+        hidden.className = "muted";
+        hidden.textContent = " · not revealed yet";
+        li.append(hidden);
+      }
       return li;
     }),
   );
@@ -114,6 +125,7 @@ async function act(path, body) {
   return res.ok;
 }
 
+$("reveal").addEventListener("click", () => act("reveal"));
 $("start").addEventListener("click", () => act("start"));
 $("stop").addEventListener("click", () => act("stop"));
 $("next").addEventListener("click", () => act("next"));

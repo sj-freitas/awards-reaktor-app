@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const code = location.pathname.split("/").pop();
 const MESSAGES = {
-  waiting: "Nominees will appear here when voting starts.",
+  waiting: "The nominees will be revealed here, then voting opens.",
   voting: "Tap a nominee to vote. You can change your vote until voting closes.",
   closed: "Voting for this category is closed.",
 };
@@ -19,10 +19,16 @@ async function vote(nomineeId) {
 
 function render(state) {
   document.title = state.name;
-  $("session").textContent = state.stage === "finished" ? state.name : `${state.name} · Category ${state.position} of ${state.total}`;
+  $("session").textContent = state.name;
   $("title").textContent = state.stage === "finished" ? "Thanks for voting!" : state.category;
   $("message").textContent = MESSAGES[state.stage] ?? "";
   $("nominees").replaceChildren(
+    ...(state.revealed ?? []).map((name) => {
+      const item = document.createElement("div");
+      item.className = "nominee revealed";
+      item.textContent = name;
+      return item;
+    }),
     ...(state.nominees ?? []).map((nominee) => {
       const button = document.createElement("button");
       button.className = nominee.id === state.myVote ? "nominee selected" : "nominee";

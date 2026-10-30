@@ -20,6 +20,7 @@ let app: ReturnType<typeof createApp>;
 beforeEach(async () => {
   const pglite = new PGlite();
   await pglite.exec(readFileSync("supabase/migrations/001_init_voting.sql", "utf8"));
+  await pglite.exec(readFileSync("supabase/migrations/002_add_revealed_count.sql", "utf8"));
   const db: Db = { query: (sql, params) => pglite.query(sql, params as any[]) as any };
   app = createApp(db, {
     appUrl: "http://localhost:3000",
@@ -35,6 +36,12 @@ afterEach(() => {
 });
 
 const admin = (method: "get" | "post", url: string) => request(app)[method](url).set("Cookie", adminCookie);
+
+// Reveals whatever is left, then opens voting.
+async function startVoting(id: string, expected = 200) {
+  while ((await admin("post", `/api/admin/sessions/${id}/reveal`)).status === 200);
+  return admin("post", `/api/admin/sessions/${id}/start`).expect(expected);
+}
 
 async function createSession() {
   const res = await admin("post", "/api/admin/sessions").send({ name: "Awards", ballot });
@@ -106,15 +113,44 @@ describe("ballot loading", () => {
 });
 
 describe("voting flow", () => {
+  it("reveals nominees one at a time and blocks voting until all are shown", async () => {
+    const { id, code } = await createSession();
+    const voter = request.agent(app);
+    const reveal = () => admin("post", `/api/admin/sessions/${id}/reveal`);
+
+    await admin("post", `/api/admin/sessions/${id}/start`).expect(409);
+
+    await reveal().expect(200);
+    expect((await voter.get(`/api/s/${code}`)).body.revealed).toEqual(["Ada"]);
+    await admin("post", `/api/admin/sessions/${id}/start`).expect(409);
+
+    const all = await reveal().expect(200);
+    expect(all.body.revealedCount).toBe(2);
+    expect((await voter.get(`/api/s/${code}`)).body.revealed).toEqual(["Ada", "Grace"]);
+    await reveal().expect(409);
+    await admin("post", `/api/admin/sessions/${id}/start`).expect(200);
+
+    await admin("post", `/api/admin/sessions/${id}/stop`).expect(200);
+    const next = await admin("post", `/api/admin/sessions/${id}/next`).expect(200);
+    expect(next.body.revealedCount).toBe(0);
+  });
+
+  it("never tells attendees how many categories there are", async () => {
+    const { code } = await createSession();
+    const { body } = await request(app).get(`/api/s/${code}`);
+    expect(body.total).toBeUndefined();
+    expect(body.position).toBeUndefined();
+  });
+
   it("hides nominees until voting and never exposes counts to attendees", async () => {
     const { id, code } = await createSession();
     const voter = request.agent(app);
 
     const waiting = await voter.get(`/api/s/${code}`);
-    expect(waiting.body).toMatchObject({ stage: "waiting", category: "Best Colleague", position: 1, total: 2 });
+    expect(waiting.body).toMatchObject({ stage: "waiting", category: "Best Colleague", revealed: [] });
     expect(waiting.body.nominees).toBeUndefined();
 
-    await admin("post", `/api/admin/sessions/${id}/start`).expect(200);
+    await startVoting(id, 200);
     const open = await voter.get(`/api/s/${code}`);
     expect(open.body.nominees.map((n: any) => n.name)).toEqual(["Ada", "Grace"]);
 
@@ -132,7 +168,7 @@ describe("voting flow", () => {
 
   it("counts one vote per attendee, letting them change it while open", async () => {
     const { id, code } = await createSession();
-    await admin("post", `/api/admin/sessions/${id}/start`);
+    await startVoting(id);
     const a = request.agent(app);
     const b = request.agent(app);
     const { nominees } = (await a.get(`/api/s/${code}`)).body;
@@ -152,7 +188,7 @@ describe("voting flow", () => {
 
   it("names every top nominee on a tie, and no winner without votes", async () => {
     const { id, code } = await createSession();
-    await admin("post", `/api/admin/sessions/${id}/start`);
+    await startVoting(id);
     const a = request.agent(app);
     const b = request.agent(app);
     const { nominees } = (await a.get(`/api/s/${code}`)).body;
@@ -163,14 +199,14 @@ describe("voting flow", () => {
 
     await admin("post", `/api/admin/sessions/${id}/next`);
     await admin("post", `/api/admin/sessions/${id}/nominees`).send({ name: "Idea" });
-    await admin("post", `/api/admin/sessions/${id}/start`);
+    await startVoting(id);
     const none = await admin("post", `/api/admin/sessions/${id}/stop`);
     expect(none.body.winners[1]).toEqual({ position: 2, category: "Best Idea", winners: [] });
   });
 
   it("rejects votes when closed or for another category's nominee", async () => {
     const { id, code } = await createSession();
-    await admin("post", `/api/admin/sessions/${id}/start`);
+    await startVoting(id);
     const voter = request.agent(app);
     const { nominees } = (await voter.get(`/api/s/${code}`)).body;
 
@@ -182,14 +218,14 @@ describe("voting flow", () => {
 
     await admin("post", `/api/admin/sessions/${id}/next`).expect(200);
     await admin("post", `/api/admin/sessions/${id}/nominees`).send({ name: "Idea" }).expect(200);
-    await admin("post", `/api/admin/sessions/${id}/start`).expect(200);
+    await startVoting(id, 200);
     await voter.post(`/api/s/${code}/vote`).send({ nomineeId: nominees[0].id }).expect(409);
   });
 
   it("enforces stage order and finishes after the last category", async () => {
     const { id, code } = await createSession();
     await admin("post", `/api/admin/sessions/${id}/stop`).expect(409);
-    await admin("post", `/api/admin/sessions/${id}/start`).expect(200);
+    await startVoting(id, 200);
     await admin("post", `/api/admin/sessions/${id}/next`).expect(409);
     await admin("post", `/api/admin/sessions/${id}/stop`).expect(200);
 
@@ -197,10 +233,10 @@ describe("voting flow", () => {
     expect(second.body).toMatchObject({ stage: "waiting", category: "Best Idea", position: 2 });
 
     // The second category has no nominees until one is added by hand.
-    await admin("post", `/api/admin/sessions/${id}/start`).expect(409);
+    await startVoting(id, 409);
     await admin("post", `/api/admin/sessions/${id}/nominees`).send({ name: "Ship it" }).expect(200);
     await admin("post", `/api/admin/sessions/${id}/nominees`).send({ name: "ship IT" }).expect(409);
-    await admin("post", `/api/admin/sessions/${id}/start`).expect(200);
+    await startVoting(id, 200);
     await admin("post", `/api/admin/sessions/${id}/stop`).expect(200);
 
     const finished = await admin("post", `/api/admin/sessions/${id}/next`).expect(200);
