@@ -1,24 +1,16 @@
-// A nominee's picture, falling back to their initials when there's none or it fails to load.
+const DEFAULT_PICTURE = "/default-nominee.png";
+
+// A nominee's picture, falling back to the Reaktor logo when there's none or it fails to load.
 function nomineePicture(nominee) {
   const box = document.createElement("div");
   box.className = "picture";
-  const showInitials = () => {
-    box.textContent = nominee.name
-      .split(/\s+/)
-      .slice(0, 2)
-      .map((word) => word[0])
-      .join("")
-      .toUpperCase();
-  };
-  if (!nominee.pictureUrl) {
-    showInitials();
-    return box;
-  }
   const image = document.createElement("img");
-  image.src = nominee.pictureUrl;
   image.alt = "";
   image.referrerPolicy = "no-referrer";
-  image.addEventListener("error", showInitials);
+  image.addEventListener("error", () => {
+    if (!image.src.endsWith(DEFAULT_PICTURE)) image.src = DEFAULT_PICTURE;
+  });
+  image.src = nominee.pictureUrl || DEFAULT_PICTURE;
   box.append(image);
   return box;
 }

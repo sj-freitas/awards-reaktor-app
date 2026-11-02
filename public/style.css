@@ -92,7 +92,7 @@ ul.plain li:first-child { border-top: 0; }
   background: transparent; color: #fff; border: 1px solid var(--line);
 }
 .nominee > span { overflow-wrap: anywhere; line-height: 1.2; }
-.nominee .picture { width: calc(var(--tile) - 14px); height: calc(var(--tile) - 14px); flex: none; border-radius: 8px; font-size: 1.25rem; }
+.nominee .picture { width: calc(var(--tile) - 14px); height: calc(var(--tile) - 14px); flex: none; border-radius: 8px; }
 /* Greyed out so it can't be mistaken for a nominee you can vote for yet. */
 .nominee.revealed, .nominee.revealed:disabled {
   opacity: 1; font-weight: 500; color: #8c8c8c; background: #161616; border-color: transparent; cursor: not-allowed;
@@ -100,8 +100,8 @@ ul.plain li:first-child { border-top: 0; }
 .nominee.revealed .picture { filter: grayscale(1); opacity: .55; }
 .nominee.selected { background: #fff; color: #000; border-color: #fff; }
 
-/* A nominee's picture, or their initials when there's none. */
-.picture { display: flex; align-items: center; justify-content: center; overflow: hidden; background: #222; color: #bbb; font-family: var(--serif); font-weight: 300; }
+/* A nominee's picture, or the Reaktor logo when there's none. */
+.picture { overflow: hidden; background: #222; }
 .picture img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
 
 /* Big display: one full-screen slide at a time, sized to the window, never scrolling. */
@@ -116,7 +116,7 @@ ul.plain li:first-child { border-top: 0; }
 .slide h1 { font-size: 8vh; margin: 0; }
 .slide-grid { flex: 1; min-height: 0; display: grid; gap: 2.5vh; justify-content: center; align-content: center; }
 .slide-card { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 1vh; animation: card-in .5s ease-out; transition: opacity .4s; }
-.slide-card .picture { flex: 1; min-height: 0; border-radius: 12px; font-size: 8vh; }
+.slide-card .picture { flex: 1; min-height: 0; border-radius: 12px; }
 .slide-card .card-name { flex: none; font-size: 2.8vh; font-weight: 500; line-height: 1.2; text-align: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .slide-grid.closed .slide-card { opacity: .45; }
 .slide-center { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3vh; text-align: center; }
@@ -124,7 +124,7 @@ ul.plain li:first-child { border-top: 0; }
 .slide-center .display { font-size: 11vh; margin: 0; }
 .slide-winners { flex: 1; min-height: 0; display: grid; gap: 4vw; grid-auto-flow: column; grid-auto-columns: 1fr; }
 .slide-winner { min-height: 0; min-width: 0; display: flex; gap: 4vw; align-items: center; animation: winner-in .9s ease-out; }
-.slide-winner .picture { height: 100%; aspect-ratio: 4 / 5; max-width: 55%; border-radius: 16px; font-size: 20vh; flex: none; }
+.slide-winner .picture { height: 100%; aspect-ratio: 4 / 5; max-width: 55%; border-radius: 16px; flex: none; }
 .slide-winner .display { font-size: 11vh; margin: 0; }
 .slide-winners.tied .slide-winner { flex-direction: column; gap: 2vh; }
 .slide-winners.tied .picture { flex: 1; min-height: 0; height: auto; max-width: 100%; }
