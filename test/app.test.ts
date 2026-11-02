@@ -305,6 +305,26 @@ describe("voting flow", () => {
     expect(none.body.winners[1]).toEqual({ position: 2, category: "Best Idea", winners: [] });
   });
 
+  it("shares a tie between only the first two tied nominees", async () => {
+    const created = await admin("post", "/api/admin/sessions").send({
+      name: "Awards",
+      ballot: {
+        allowedEmails: ["a@b.co", "c@b.co", "d@b.co"],
+        categories: [{ name: "Three way", nominees: ["First", "Second", "Third"] }],
+      },
+    });
+    const { id, code } = created.body;
+    await admin("post", `/api/admin/sessions/${id}/next`);
+    await startVoting(id);
+    const { nominees } = (await attendee("a@b.co").get(`/api/s/${code}`)).body;
+    // Voted in reverse, so ballot order rather than vote order decides who shares it.
+    for (const [email, index] of [["a@b.co", 2], ["c@b.co", 1], ["d@b.co", 0]] as const) {
+      await attendee(email).post(`/api/s/${code}/vote`).send({ nomineeId: nominees[index].id }).expect(200);
+    }
+    const closed = await admin("post", `/api/admin/sessions/${id}/stop`);
+    expect(closed.body.winners[0].winners.map((w: any) => w.name)).toEqual(["First", "Second"]);
+  });
+
   it("rejects votes when closed or for another category's nominee", async () => {
     const { id, code } = await createSession();
     await startVoting(id);

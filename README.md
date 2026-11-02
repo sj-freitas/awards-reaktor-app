@@ -55,4 +55,4 @@ Tests run against an in-memory Postgres (PGlite), so they need no database. Run 
 
 Sign-in needs a Google OAuth web client with `<APP_URL>/auth/google/callback` as an authorized redirect URI. Only addresses in `ADMIN_EMAILS` get admin access.
 
-Attendees get one vote per category per Google account, and can change it until voting stops. Votes are stored under a keyed hash of the email rather than the email itself.
+Attendees get one vote per category per Google account, and can change it until voting stops. A tie is shared by the first two tied nominees in ballot order, however many are tied. Votes are stored under a keyed hash of the email rather than the email itself.

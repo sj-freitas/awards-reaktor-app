@@ -34,6 +34,7 @@ const OAUTH_RETURN_COOKIE = "oauth_return";
 // Only pages on this site, so sign-in can't be used to redirect elsewhere.
 const RETURN_PATH = /^\/(admin\/sessions|display)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^\/s\/[a-z0-9]{1,32}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_TIED_WINNERS = 2;
 const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 
 function newCode(): string {
@@ -277,7 +278,8 @@ export function createApp(db: Db, config: Config) {
     res.status(201).json(rows[0]);
   });
 
-  // Winners of each category whose voting has ended. A tie returns every top nominee.
+  // Winners of each category whose voting has ended. A tie is shared by the first two tied
+  // nominees in ballot order, however many are tied.
   async function categoryWinners(id: string) {
     const { rows } = await db.query(
       `with tallies as (
@@ -307,7 +309,8 @@ export function createApp(db: Db, config: Config) {
       if (!categories.has(row.position)) {
         categories.set(row.position, { position: row.position + 1, category: row.category, winners: [] });
       }
-      if (row.won) categories.get(row.position)!.winners.push({ name: row.nominee, pictureUrl: row.picture_url });
+      const { winners } = categories.get(row.position)!;
+      if (row.won && winners.length < MAX_TIED_WINNERS) winners.push({ name: row.nominee, pictureUrl: row.picture_url });
     }
     return [...categories.values()];
   }

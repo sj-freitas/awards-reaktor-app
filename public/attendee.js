@@ -6,7 +6,8 @@ const MESSAGES = {
   voting: "Tap a nominee to vote. You can change your vote until voting closes.",
   closed: "Voting for this category is closed.",
 };
-let lastRendered = "";
+let tiles = new Map();
+let tilesCategory;
 let poll;
 
 async function vote(nomineeId) {
@@ -20,39 +21,56 @@ async function vote(nomineeId) {
   await refresh();
 }
 
-function nomineeContent(element, nominee) {
-  const name = document.createElement("span");
-  name.textContent = nominee.name;
-  element.append(nomineePicture(nominee), name);
-  return element;
+// One tile per nominee, kept across polls and stages so a picture never reloads or flashes.
+function tileFor(nominee) {
+  let tile = tiles.get(nominee.name);
+  if (!tile) {
+    tile = document.createElement("button");
+    const name = document.createElement("span");
+    name.textContent = nominee.name;
+    tile.append(nomineePicture(nominee), name);
+    tile.addEventListener("click", () => vote(tile.dataset.id));
+    tiles.set(nominee.name, tile);
+  }
+  return tile;
 }
 
 function render(state) {
-  // Polling mostly returns the same thing. Rebuilding anyway would make the pictures flicker.
-  const signature = JSON.stringify(state);
-  if (signature === lastRendered) return;
-  lastRendered = signature;
-
+  if (state.category !== tilesCategory) {
+    tilesCategory = state.category;
+    tiles = new Map();
+  }
   document.title = state.name;
   $("session").textContent = state.name;
   $("title").textContent =
     state.stage === "finished" ? "Thanks for voting!" : state.stage === "lobby" ? "We'll start soon" : state.category;
   $("message").textContent = MESSAGES[state.stage] ?? "";
-  $("nominees").replaceChildren(
-    ...(state.revealed ?? []).map((nominee) => {
-      const item = document.createElement("div");
-      item.className = "nominee revealed";
-      item.setAttribute("aria-disabled", "true");
-      return nomineeContent(item, nominee);
-    }),
-    ...(state.nominees ?? []).map((nominee) => {
-      const button = document.createElement("button");
-      button.className = nominee.id === state.myVote ? "nominee selected" : "nominee";
-      button.setAttribute("aria-pressed", String(nominee.id === state.myVote));
-      button.addEventListener("click", () => vote(nominee.id));
-      return nomineeContent(button, nominee);
-    }),
-  );
+
+  const locked = (state.revealed ?? []).map((nominee) => {
+    const tile = tileFor(nominee);
+    tile.className = "nominee revealed";
+    tile.disabled = true;
+    tile.removeAttribute("aria-pressed");
+    return tile;
+  });
+  const open = (state.nominees ?? []).map((nominee) => {
+    const tile = tileFor(nominee);
+    const selected = nominee.id === state.myVote;
+    tile.className = selected ? "nominee selected" : "nominee";
+    tile.disabled = false;
+    tile.dataset.id = nominee.id;
+    tile.setAttribute("aria-pressed", String(selected));
+    return tile;
+  });
+  const shown = [...locked, ...open];
+  const list = $("nominees");
+  // Leaves tiles already in place alone and only adds what's new.
+  [...list.children].forEach((tile) => {
+    if (!shown.includes(tile)) tile.remove();
+  });
+  shown.forEach((tile, index) => {
+    if (list.children[index] !== tile) list.insertBefore(tile, list.children[index] ?? null);
+  });
 }
 
 function showSignIn(title, message, label) {

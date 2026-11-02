@@ -1,6 +1,6 @@
 const id = location.pathname.split("/").pop();
 const api = `/api/admin/sessions/${id}/display`;
-const STATUS = { waiting: "Meet the nominees", voting: "Voting is open", closed: "Voting is closed" };
+const STATUS = { voting: "Voting is open", closed: "Voting is closed" };
 let currentSlide = "";
 let grid = null;
 let gridTotal = 0;
@@ -57,7 +57,7 @@ function renderNominees(state) {
     grid = element("div", "slide-grid");
     showSlide(head, grid);
   }
-  document.querySelector(".status").textContent = STATUS[state.stage];
+  document.querySelector(".status").textContent = STATUS[state.stage] ?? state.name;
   grid.classList.toggle("closed", state.stage === "closed");
   gridTotal = state.totalNominees;
   layoutGrid();
