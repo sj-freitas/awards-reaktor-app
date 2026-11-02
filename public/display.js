@@ -3,6 +3,7 @@ const api = `/api/admin/sessions/${id}/display`;
 const STATUS = { waiting: "Meet the nominees", voting: "Voting is open", closed: "Voting is closed" };
 let currentSlide = "";
 let grid = null;
+let gridTotal = 0;
 let shownNominees = new Set();
 
 function element(tag, className, text) {
@@ -21,10 +22,29 @@ function showSlide(...children) {
   return brand.querySelector(".status");
 }
 
-// Fills the screen for this many nominees from the start, so nothing moves as each one is revealed.
-function gridShape(total) {
-  const columns = total <= 4 ? Math.max(total, 1) : total <= 6 ? 3 : total <= 8 ? 4 : total <= 15 ? 5 : 6;
-  return { columns, rows: Math.max(Math.ceil(total / columns), 1) };
+// Pictures keep one size whatever the nominee count, and the grid rearranges around them. The space
+// is worked out for the whole category up front, so nothing moves as each nominee is revealed.
+// They only shrink if the nominees can't otherwise fit on this screen.
+const PICTURE_HEIGHT_VH = 28;
+const PICTURE_RATIO = 0.8;
+const NAME_HEIGHT_VH = 5;
+const GAP_VH = 2.5;
+
+function layoutGrid() {
+  if (!grid || !grid.isConnected) return;
+  const vh = window.innerHeight / 100;
+  const total = Math.max(gridTotal, 1);
+  let height = PICTURE_HEIGHT_VH * vh;
+  let maxColumns;
+  let rows;
+  for (; ; height -= vh) {
+    maxColumns = Math.max(Math.floor((grid.clientWidth + GAP_VH * vh) / (height * PICTURE_RATIO + GAP_VH * vh)), 1);
+    rows = Math.ceil(total / maxColumns);
+    const needed = rows * (height + NAME_HEIGHT_VH * vh) + (rows - 1) * GAP_VH * vh;
+    if (needed <= grid.clientHeight || height <= 10 * vh) break;
+  }
+  grid.style.gridTemplateColumns = `repeat(${Math.ceil(total / rows)}, ${height * PICTURE_RATIO}px)`;
+  grid.style.gridTemplateRows = `repeat(${rows}, ${height + NAME_HEIGHT_VH * vh}px)`;
 }
 
 function renderNominees(state) {
@@ -39,9 +59,8 @@ function renderNominees(state) {
   }
   document.querySelector(".status").textContent = STATUS[state.stage];
   grid.classList.toggle("closed", state.stage === "closed");
-  const { columns, rows } = gridShape(state.totalNominees);
-  grid.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
-  grid.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+  gridTotal = state.totalNominees;
+  layoutGrid();
   // Only adds what's new, so revealed nominees animate once and pictures don't reload.
   for (const nominee of state.nominees) {
     if (shownNominees.has(nominee.id)) continue;
@@ -108,5 +127,6 @@ async function refresh() {
   if (res.ok) render(await res.json());
 }
 
+window.addEventListener("resize", layoutGrid);
 refresh();
 setInterval(refresh, 1500);
