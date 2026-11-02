@@ -143,10 +143,7 @@ $("stop").addEventListener("click", () => act("stop"));
 $("next").addEventListener("click", () => act("next"));
 $("add-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (await act("nominees", { name: $("nominee-name").value, pictureUrl: $("nominee-picture").value.trim() })) {
-    $("nominee-name").value = "";
-    $("nominee-picture").value = "";
-  }
+  if (await act("nominees", { name: $("nominee-name").value })) $("nominee-name").value = "";
 });
 
 refresh();

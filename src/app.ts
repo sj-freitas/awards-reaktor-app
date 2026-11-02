@@ -14,7 +14,7 @@ import {
   userCookieValue,
   voterId,
 } from "./auth.js";
-import { MAX_NOMINEES, cleanName, cleanPictureUrl, parseBallot } from "./ballot.js";
+import { MAX_NOMINEES, cleanName, parseBallot } from "./ballot.js";
 
 export interface Db {
   query<T = any>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
@@ -35,6 +35,7 @@ const OAUTH_RETURN_COOKIE = "oauth_return";
 const RETURN_PATH = /^\/(admin\/sessions|display)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^\/s\/[a-z0-9]{1,32}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TIED_WINNERS = 2;
+const DEFAULT_PICTURE_URL = "/default-nominee.png";
 const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 
 function newCode(): string {
@@ -467,21 +468,27 @@ export function createApp(db: Db, config: Config) {
       res.status(400).json({ error: "Give the nominee a name." });
       return;
     }
-    const pictureUrl = req.body?.pictureUrl ? cleanPictureUrl(req.body.pictureUrl) : null;
-    if (req.body?.pictureUrl && !pictureUrl) {
-      res.status(400).json({ error: "The picture needs to be an https URL." });
-      return;
-    }
     const { rows } = await db.query(
       `insert into nominees (category_id, position, name, picture_url)
-       select c.id, coalesce((select max(position) + 1 from nominees where category_id = c.id), 0), $2, $3
+       select c.id, coalesce((select max(position) + 1 from nominees where category_id = c.id), 0), $2::text,
+              -- The first picture this session has for the same name, in ballot order.
+              coalesce(
+                (select other.picture_url
+                   from nominees other
+                   join categories oc on oc.id = other.category_id
+                  where oc.session_id = s.id and lower(other.name) = lower($2::text)
+                    and other.picture_url is not null and other.picture_url <> $3::text
+                  order by oc.position, other.position
+                  limit 1),
+                $3::text
+              )
          from sessions s
          join categories c on c.session_id = s.id and c.position = s.current_position
         where s.id = $1 and s.stage not in ('winner', 'finished')
           and (select count(*) from nominees where category_id = c.id) < $4
        on conflict (category_id, lower(name)) do nothing
        returning id`,
-      [req.params.id, name, pictureUrl, MAX_NOMINEES],
+      [req.params.id, name, DEFAULT_PICTURE_URL, MAX_NOMINEES],
     );
     await respondWithState(req.params.id, res, rows.length ? undefined : `Couldn't add "${name}": it's already nominated, the category has ${MAX_NOMINEES} nominees, or the winner has been shown.`);
   });

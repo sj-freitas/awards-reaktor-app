@@ -185,6 +185,27 @@ describe("ballot loading", () => {
     await admin("post", url).send({ name: "7" }).expect(409);
   });
 
+  it("gives an added nominee the first picture for their name, or the default", async () => {
+    const created = await load({
+      allowedEmails: ["a@b.co"],
+      categories: [
+        { name: "One", nominees: ["Other", { name: "Ada", pictureUrl: "https://example.com/first.jpg" }] },
+        { name: "Two", nominees: [{ name: "Ada", pictureUrl: "https://example.com/second.jpg" }] },
+        { name: "Three", nominees: [] },
+      ],
+    });
+    const { id } = created.body;
+    const add = (name: string) => admin("post", `/api/admin/sessions/${id}/nominees`).send({ name, pictureUrl: "https://example.com/ignored.jpg" }).expect(200);
+    const picture = (body: any, name: string) => body.nominees.find((n: any) => n.name === name).pictureUrl;
+
+    for (let i = 0; i < 3; i++) await admin("post", `/api/admin/sessions/${id}/next`).expect(200);
+    expect(picture((await add("ADA")).body, "ADA")).toBe("https://example.com/first.jpg");
+    expect(picture((await add("Nobody")).body, "Nobody")).toBe("/default-nominee.png");
+    // A name known only without a picture gets the default too.
+    expect(picture((await add("Other")).body, "Other")).toBe("/default-nominee.png");
+    await request(app).get("/default-nominee.png").expect(200);
+  });
+
   it("only accepts https picture URLs", async () => {
     for (const pictureUrl of ["http://example.com/a.jpg", "javascript:alert(1)", "not a url"]) {
       const res = await load({ allowedEmails: ["a@b.co"], categories: [{ name: "A", nominees: [{ name: "B", pictureUrl }] }] });
@@ -355,8 +376,7 @@ describe("voting flow", () => {
 
     // The second category has no nominees until one is added by hand.
     await startVoting(id, 409);
-    await admin("post", `/api/admin/sessions/${id}/nominees`).send({ name: "Ship it", pictureUrl: "http://example.com/a.jpg" }).expect(400);
-    await admin("post", `/api/admin/sessions/${id}/nominees`).send({ name: "Ship it", pictureUrl: "https://example.com/a.jpg" }).expect(200);
+    await admin("post", `/api/admin/sessions/${id}/nominees`).send({ name: "Ship it" }).expect(200);
     await admin("post", `/api/admin/sessions/${id}/nominees`).send({ name: "ship IT" }).expect(409);
     await startVoting(id, 200);
     await admin("post", `/api/admin/sessions/${id}/stop`).expect(200);
