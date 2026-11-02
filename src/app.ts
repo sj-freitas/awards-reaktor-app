@@ -4,18 +4,17 @@ import { fileURLToPath } from "node:url";
 import express, { type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
 import {
-  ADMIN_TTL_MS,
-  adminCookieValue,
+  SIGN_IN_TTL_MS,
   fetchGoogleEmail,
   googleAuthUrl,
   randomToken,
-  readAdminEmail,
   readCookie,
+  readUserEmail,
   setCookie,
-  sign,
-  unsign,
+  userCookieValue,
+  voterId,
 } from "./auth.js";
-import { cleanName, parseBallot } from "./ballot.js";
+import { cleanName, cleanPictureUrl, parseBallot } from "./ballot.js";
 
 export interface Db {
   query<T = any>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
@@ -29,13 +28,11 @@ export interface Config {
   sessionSecret: string;
 }
 
-const ADMIN_COOKIE = "admin";
-const VOTER_COOKIE = "voter";
+const USER_COOKIE = "user";
 const OAUTH_STATE_COOKIE = "oauth_state";
 const OAUTH_RETURN_COOKIE = "oauth_return";
-// Only admin pages on this site, so sign-in can't be used to redirect elsewhere.
-const RETURN_PATH = /^\/admin\/sessions\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const VOTER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// Only pages on this site, so sign-in can't be used to redirect elsewhere.
+const RETURN_PATH = /^\/(admin\/sessions|display)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^\/s\/[a-z0-9]{1,32}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 
@@ -52,7 +49,7 @@ export function createApp(db: Db, config: Config) {
   const app = express();
   const secure = config.appUrl.startsWith("https://");
   const redirectUri = `${config.appUrl}/auth/google/callback`;
-  const allowed = new Set(config.adminEmails.map((e) => e.toLowerCase()));
+  const admins = new Set(config.adminEmails.map((e) => e.toLowerCase()));
 
   app.set("trust proxy", 1);
   app.use(express.json({ limit: "1mb" }));
@@ -79,40 +76,63 @@ export function createApp(db: Db, config: Config) {
     res.redirect(googleAuthUrl(config.googleClientId, redirectUri, state));
   });
 
+  // Any verified Google account gets a sign-in cookie. What it can reach is checked per request:
+  // the admin list for the admin, and each session's allowed emails for attendees.
   app.get("/auth/google/callback", async (req, res) => {
     const state = readCookie(req, OAUTH_STATE_COOKIE);
+    const returnCookie = readCookie(req, OAUTH_RETURN_COOKIE);
+    const returnTo = returnCookie && RETURN_PATH.test(returnCookie) ? returnCookie : "/admin";
     res.clearCookie(OAUTH_STATE_COOKIE, { path: "/" });
+    res.clearCookie(OAUTH_RETURN_COOKIE, { path: "/" });
     const { code, state: returnedState } = req.query;
     if (!state || state !== returnedState || typeof code !== "string") {
-      res.redirect("/admin?error=signin");
+      res.redirect(`${returnTo}?error=signin`);
       return;
     }
     const email = await fetchGoogleEmail(code, config.googleClientId, config.googleClientSecret, redirectUri);
-    if (!email || !allowed.has(email)) {
-      res.redirect("/admin?error=denied");
+    if (!email) {
+      res.redirect(`${returnTo}?error=signin`);
       return;
     }
-    setCookie(res, ADMIN_COOKIE, adminCookieValue(email, config.sessionSecret), ADMIN_TTL_MS, secure);
-    const returnTo = readCookie(req, OAUTH_RETURN_COOKIE);
-    res.clearCookie(OAUTH_RETURN_COOKIE, { path: "/" });
-    res.redirect(returnTo && RETURN_PATH.test(returnTo) ? returnTo : "/admin");
+    setCookie(res, USER_COOKIE, userCookieValue(email, config.sessionSecret), SIGN_IN_TTL_MS, secure);
+    res.redirect(returnTo);
   });
 
   app.post("/auth/logout", (_req, res) => {
-    res.clearCookie(ADMIN_COOKIE, { path: "/" });
+    res.clearCookie(USER_COOKIE, { path: "/" });
     res.status(204).end();
   });
 
+  const signedInEmail = (req: Request) => readUserEmail(readCookie(req, USER_COOKIE), config.sessionSecret);
+
   // --- Attendee ---
 
-  function voterId(req: Request, res: Response): string {
-    const existing = unsign(readCookie(req, VOTER_COOKIE), config.sessionSecret);
-    const id = existing ?? randomToken();
-    if (!existing) setCookie(res, VOTER_COOKIE, sign(id, config.sessionSecret), VOTER_TTL_MS, secure);
-    return id;
+  // Responds and returns null unless the signed-in account is on this session's list.
+  async function requireAttendee(req: Request, res: Response): Promise<string | null> {
+    const email = signedInEmail(req);
+    if (!email) {
+      res.status(401).json({ error: "Sign in required." });
+      return null;
+    }
+    const { rows } = await db.query(
+      `select exists (select 1 from session_attendees a where a.session_id = s.id and a.email = $2) as allowed
+         from sessions s where s.code = $1`,
+      [req.params.code, email],
+    );
+    if (rows.length === 0) {
+      res.status(404).json({ error: "This voting session doesn't exist." });
+      return null;
+    }
+    if (!rows[0].allowed) {
+      res.status(403).json({ error: "This account isn't on the list for this session.", email });
+      return null;
+    }
+    return email;
   }
 
   app.get("/api/s/:code", async (req, res) => {
+    const email = await requireAttendee(req, res);
+    if (!email) return;
     const { rows } = await db.query(
       `select s.name, s.stage, s.revealed_count, c.id as category_id, c.name as category_name
          from sessions s
@@ -121,33 +141,28 @@ export function createApp(db: Db, config: Config) {
       [req.params.code],
     );
     const session = rows[0];
-    if (!session) {
-      res.status(404).json({ error: "This voting session doesn't exist." });
-      return;
-    }
 
-    const voter = voterId(req, res);
-    const body: Record<string, unknown> = {
-      name: session.name,
-      stage: session.stage,
-    };
-    if (session.stage !== "finished" && session.stage !== "lobby") body.category = session.category_name;
+    // Showing the winner happens on the big display only, so attendees just see voting closed.
+    const stage = session.stage === "winner" ? "closed" : session.stage;
+    const body: Record<string, unknown> = { name: session.name, stage };
+    if (stage !== "finished" && stage !== "lobby") body.category = session.category_name;
     // Attendees get only the nominees revealed so far, and can vote only while voting is open.
     // The number of categories, vote counts and winners are never sent.
-    if (session.stage === "waiting") {
+    if (stage === "waiting") {
       const revealed = await db.query(
-        `select name from nominees where category_id = $1 order by position limit $2`,
+        `select name, picture_url as "pictureUrl" from nominees where category_id = $1 order by position limit $2`,
         [session.category_id, session.revealed_count],
       );
-      body.revealed = revealed.rows.map((nominee) => nominee.name);
+      body.revealed = revealed.rows;
     }
-    if (session.stage === "voting") {
-      const nominees = await db.query(`select id, name from nominees where category_id = $1 order by position`, [
-        session.category_id,
-      ]);
+    if (stage === "voting") {
+      const nominees = await db.query(
+        `select id, name, picture_url as "pictureUrl" from nominees where category_id = $1 order by position`,
+        [session.category_id],
+      );
       const mine = await db.query(`select nominee_id from votes where category_id = $1 and voter_id = $2`, [
         session.category_id,
-        voter,
+        voterId(email, config.sessionSecret),
       ]);
       body.nominees = nominees.rows;
       body.myVote = mine.rows[0]?.nominee_id ?? null;
@@ -170,6 +185,8 @@ export function createApp(db: Db, config: Config) {
   });
 
   app.post("/api/s/:code/vote", async (req, res) => {
+    const email = await requireAttendee(req, res);
+    if (!email) return;
     const nomineeId = req.body?.nomineeId;
     if (typeof nomineeId !== "string" || !UUID.test(nomineeId)) {
       res.status(400).json({ error: "Pick a nominee." });
@@ -185,7 +202,7 @@ export function createApp(db: Db, config: Config) {
        on conflict (category_id, voter_id)
        do update set nominee_id = excluded.nominee_id, updated_at = now()
        returning nominee_id`,
-      [req.params.code, nomineeId, voterId(req, res)],
+      [req.params.code, nomineeId, voterId(email, config.sessionSecret)],
     );
     if (rows.length === 0) {
       res.status(409).json({ error: "Voting for this nominee isn't open." });
@@ -197,10 +214,14 @@ export function createApp(db: Db, config: Config) {
   // --- Admin ---
 
   function requireAdmin(req: Request, res: Response, next: NextFunction) {
-    const email = readAdminEmail(readCookie(req, ADMIN_COOKIE), config.sessionSecret);
-    // Re-checked on each request so removing an email takes effect at once.
-    if (!email || !allowed.has(email)) {
+    const email = signedInEmail(req);
+    if (!email) {
       res.status(401).json({ error: "Sign in required." });
+      return;
+    }
+    // Re-checked on each request so removing an email takes effect at once.
+    if (!admins.has(email)) {
+      res.status(403).json({ error: "This account isn't an admin.", email });
       return;
     }
     res.locals.email = email;
@@ -241,14 +262,17 @@ export function createApp(db: Db, config: Config) {
          select s.id, input.pos, input.value->>'name' from s, input
          returning id, position
        ), n as (
-         insert into nominees (category_id, position, name)
-         select c.id, nominee.ord - 1, nominee.value->>'name'
+         insert into nominees (category_id, position, name, picture_url)
+         select c.id, nominee.ord - 1, nominee.value->>'name', nominee.value->>'pictureUrl'
            from c
            join input on input.pos = c.position
            cross join lateral jsonb_array_elements(input.value->'nominees') with ordinality as nominee(value, ord)
+       ), a as (
+         insert into session_attendees (session_id, email)
+         select s.id, email from s, jsonb_array_elements_text($5::jsonb) as email
        )
        select id, code from s`,
-      [newCode(), name, res.locals.email, JSON.stringify(ballot.categories)],
+      [newCode(), name, res.locals.email, JSON.stringify(ballot.categories), JSON.stringify(ballot.allowedEmails)],
     );
     res.status(201).json(rows[0]);
   });
@@ -257,7 +281,7 @@ export function createApp(db: Db, config: Config) {
   async function categoryWinners(id: string) {
     const { rows } = await db.query(
       `with tallies as (
-         select c.id, c.position, c.name as category, n.name as nominee, n.position as nominee_position,
+         select c.id, c.position, c.name as category, n.name as nominee, n.picture_url, n.position as nominee_position,
                 count(v.voter_id)::int as votes
            from sessions s
            join categories c on c.session_id = s.id
@@ -265,22 +289,25 @@ export function createApp(db: Db, config: Config) {
            left join votes v on v.nominee_id = n.id
           where s.id = $1
             and (c.position < s.current_position
-                 or (c.position = s.current_position and s.stage in ('closed', 'finished')))
-          group by c.id, c.position, c.name, n.name, n.position
+                 or (c.position = s.current_position and s.stage in ('closed', 'winner', 'finished')))
+          group by c.id, c.position, c.name, n.name, n.picture_url, n.position
        ), ranked as (
          select *, max(votes) over (partition by id) as top from tallies
        )
-       select position, category, nominee, votes = top and votes > 0 as won
+       select position, category, nominee, picture_url, votes = top and votes > 0 as won
          from ranked
         order by position, nominee_position`,
       [id],
     );
-    const categories = new Map<number, { position: number; category: string; winners: string[] }>();
+    const categories = new Map<
+      number,
+      { position: number; category: string; winners: { name: string; pictureUrl: string | null }[] }
+    >();
     for (const row of rows) {
       if (!categories.has(row.position)) {
         categories.set(row.position, { position: row.position + 1, category: row.category, winners: [] });
       }
-      if (row.won) categories.get(row.position)!.winners.push(row.nominee);
+      if (row.won) categories.get(row.position)!.winners.push({ name: row.nominee, pictureUrl: row.picture_url });
     }
     return [...categories.values()];
   }
@@ -290,7 +317,8 @@ export function createApp(db: Db, config: Config) {
       `select s.id, s.code, s.name, s.stage, s.current_position, s.revealed_count,
               c.id as category_id, c.name as category_name,
               (select count(*)::int from categories where session_id = s.id) as total,
-              (select count(*)::int from votes where category_id = c.id) as vote_count
+              (select count(*)::int from votes where category_id = c.id) as vote_count,
+              (select count(*)::int from session_attendees where session_id = s.id) as allowed_count
          from sessions s
          left join categories c on c.session_id = s.id and c.position = s.current_position
         where s.id = $1`,
@@ -298,9 +326,10 @@ export function createApp(db: Db, config: Config) {
     );
     const session = rows[0];
     if (!session) return null;
-    const nominees = await db.query(`select id, name from nominees where category_id = $1 order by position`, [
-      session.category_id,
-    ]);
+    const nominees = await db.query(
+      `select id, name, picture_url as "pictureUrl" from nominees where category_id = $1 order by position`,
+      [session.category_id],
+    );
     return {
       id: session.id,
       code: session.code,
@@ -311,10 +340,12 @@ export function createApp(db: Db, config: Config) {
       category: session.stage === "finished" ? null : session.category_name,
       voteCount: session.vote_count,
       revealedCount: session.revealed_count,
+      allowedCount: session.allowed_count,
       nominees: session.stage === "finished" ? [] : nominees.rows,
       winners: await categoryWinners(id),
       attendeeUrl: `${config.appUrl}/s/${session.code}`,
       qrPageUrl: `${config.appUrl}/qr/${session.code}`,
+      displayUrl: `${config.appUrl}/display/${session.id}`,
     };
   }
 
@@ -340,6 +371,28 @@ export function createApp(db: Db, config: Config) {
 
   app.get("/api/admin/sessions/:id", async (req, res) => {
     await respondWithState(req.params.id, res);
+  });
+
+  // What the big display shows. It sits behind admin sign-in because attendees know the session
+  // code, and this can hold the winner. Only the winner step includes the winners.
+  app.get("/api/admin/sessions/:id/display", async (req, res) => {
+    const state = await adminState(req.params.id);
+    if (!state) {
+      res.status(404).json({ error: "Session not found." });
+      return;
+    }
+    const inCategory = state.stage !== "lobby" && state.stage !== "finished";
+    const current = state.winners.find((w) => w.position === state.position);
+    res.json({
+      name: state.name,
+      code: state.code,
+      stage: state.stage,
+      attendeeUrl: state.attendeeUrl,
+      category: inCategory ? state.category : null,
+      totalNominees: inCategory ? state.nominees.length : 0,
+      nominees: !inCategory ? [] : state.stage === "waiting" ? state.nominees.slice(0, state.revealedCount) : state.nominees,
+      winners: state.stage === "winner" ? (current?.winners ?? []) : [],
+    });
   });
 
   app.post("/api/admin/sessions/:id/reveal", async (req, res) => {
@@ -383,6 +436,14 @@ export function createApp(db: Db, config: Config) {
     await respondWithState(req.params.id, res, rows.length ? undefined : "Voting isn't open.");
   });
 
+  app.post("/api/admin/sessions/:id/show-winner", async (req, res) => {
+    const { rows } = await db.query(
+      `update sessions set stage = 'winner' where id = $1 and stage = 'closed' returning id`,
+      [req.params.id],
+    );
+    await respondWithState(req.params.id, res, rows.length ? undefined : "Stop voting before showing the winner.");
+  });
+
   app.post("/api/admin/sessions/:id/next", async (req, res) => {
     const { rows } = await db.query(
       `update sessions s set
@@ -390,7 +451,7 @@ export function createApp(db: Db, config: Config) {
          stage = case when s.stage = 'lobby' or s.current_position + 1 < t.total then 'waiting' else 'finished' end,
          current_position = case when s.stage <> 'lobby' and s.current_position + 1 < t.total then s.current_position + 1 else s.current_position end
          from (select count(*)::int as total from categories where session_id = $1) t
-        where s.id = $1 and s.stage in ('lobby', 'waiting', 'closed')
+        where s.id = $1 and s.stage in ('lobby', 'waiting', 'closed', 'winner')
         returning s.id`,
       [req.params.id],
     );
@@ -403,17 +464,22 @@ export function createApp(db: Db, config: Config) {
       res.status(400).json({ error: "Give the nominee a name." });
       return;
     }
+    const pictureUrl = req.body?.pictureUrl ? cleanPictureUrl(req.body.pictureUrl) : null;
+    if (req.body?.pictureUrl && !pictureUrl) {
+      res.status(400).json({ error: "The picture needs to be an https URL." });
+      return;
+    }
     const { rows } = await db.query(
-      `insert into nominees (category_id, position, name)
-       select c.id, coalesce((select max(position) + 1 from nominees where category_id = c.id), 0), $2
+      `insert into nominees (category_id, position, name, picture_url)
+       select c.id, coalesce((select max(position) + 1 from nominees where category_id = c.id), 0), $2, $3
          from sessions s
          join categories c on c.session_id = s.id and c.position = s.current_position
-        where s.id = $1 and s.stage <> 'finished'
+        where s.id = $1 and s.stage not in ('winner', 'finished')
        on conflict (category_id, lower(name)) do nothing
        returning id`,
-      [req.params.id, name],
+      [req.params.id, name, pictureUrl],
     );
-    await respondWithState(req.params.id, res, rows.length ? undefined : `Couldn't add "${name}": it's already nominated, or the session has finished.`);
+    await respondWithState(req.params.id, res, rows.length ? undefined : `Couldn't add "${name}": it's already nominated, or the winner has been shown.`);
   });
 
   // --- Pages ---
@@ -425,6 +491,7 @@ export function createApp(db: Db, config: Config) {
   app.get("/admin/sessions/:id", publicPage("session.html"));
   app.get("/s/:code", publicPage("attendee.html"));
   app.get("/qr/:code", publicPage("qr.html"));
+  app.get("/display/:id", publicPage("display.html"));
   app.use(express.static(publicDir(), { index: false }));
 
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

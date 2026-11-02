@@ -35,14 +35,14 @@ export function randomToken(): string {
   return randomBytes(24).toString("base64url");
 }
 
-const ADMIN_TTL_MS = 12 * 60 * 60 * 1000;
+const SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
 
-export function adminCookieValue(email: string, secret: string, now = Date.now()): string {
-  const payload = Buffer.from(JSON.stringify({ email, exp: now + ADMIN_TTL_MS })).toString("base64url");
+export function userCookieValue(email: string, secret: string, now = Date.now()): string {
+  const payload = Buffer.from(JSON.stringify({ email, exp: now + SIGN_IN_TTL_MS })).toString("base64url");
   return sign(payload, secret);
 }
 
-export function readAdminEmail(cookie: string | undefined, secret: string, now = Date.now()): string | null {
+export function readUserEmail(cookie: string | undefined, secret: string, now = Date.now()): string | null {
   const payload = unsign(cookie, secret);
   if (!payload) return null;
   try {
@@ -53,7 +53,7 @@ export function readAdminEmail(cookie: string | undefined, secret: string, now =
   }
 }
 
-export { ADMIN_TTL_MS };
+export { SIGN_IN_TTL_MS };
 
 export function googleAuthUrl(clientId: string, redirectUri: string, state: string): string {
   const params = new URLSearchParams({
@@ -94,4 +94,9 @@ export async function fetchGoogleEmail(
   if (!userRes.ok) return null;
   const user = (await userRes.json()) as { email?: string; email_verified?: boolean };
   return user.email && user.email_verified === true ? user.email.toLowerCase() : null;
+}
+
+// Votes are stored under this rather than the email, so ballots can't be read from the database.
+export function voterId(email: string, secret: string): string {
+  return createHmac("sha256", secret).update(`voter:${email}`).digest("base64url");
 }

@@ -30,6 +30,7 @@
     <button id="reveal">Show next nominee</button>
     <button id="start">Start voting</button>
     <button id="stop">Stop voting</button>
+    <button id="show-winner">Show winner on big display</button>
     <button id="next" class="secondary">Next category</button>
   </div>
   <p id="action-error" class="error"></p>
@@ -45,13 +46,17 @@
     <ul id="nominees" class="plain"></ul>
     <form id="add-form" class="row" style="margin-top: 8px">
       <input id="nominee-name" class="grow" placeholder="Add a nominee" aria-label="Nominee name">
+      <input id="nominee-picture" class="grow" type="url" placeholder="Picture URL (optional)" aria-label="Nominee picture URL">
       <button class="secondary">Add</button>
     </form>
   </section>
 
   <section class="section">
-    <h2>Join QR code</h2>
-    <a id="qr-link" class="button" target="_blank" rel="noopener">Open QR page</a>
+    <h2>Screens</h2>
+    <div class="row">
+      <a id="display-link" class="button" target="_blank" rel="noopener">Open big display</a>
+      <a id="qr-link" class="button secondary" target="_blank" rel="noopener">Open QR page</a>
+    </div>
     <p class="muted" style="margin-bottom: 0">Attendees join at <a id="url"></a></p>
   </section>
 

@@ -31,9 +31,15 @@
       <input id="file" type="file" accept="application/json,.json">
       <label for="json">Or paste the JSON</label>
       <textarea id="json" spellcheck="false" placeholder='{
+  "allowedEmails": ["ada@reaktor.com", "grace@reaktor.com"],
   "categories": [
-    { "name": "Best Colleague", "nominees": ["Ada", "Grace"] },
-    { "name": "Best Idea", "nominees": ["Ship it", "Nap room"] }
+    {
+      "name": "Best Colleague",
+      "nominees": [
+        { "name": "Ada", "pictureUrl": "https://example.com/ada.jpg" },
+        { "name": "Grace" }
+      ]
+    }
   ]
 }'></textarea>
       <p id="preview" class="muted"></p>

@@ -30,9 +30,9 @@ function updatePreview() {
   $("preview").textContent = "";
   if (!text) return;
   try {
-    const categories = JSON.parse(text).categories;
+    const { categories, allowedEmails } = JSON.parse(text);
     const nominees = categories.reduce((sum, c) => sum + (c.nominees?.length ?? 0), 0);
-    $("preview").textContent = `${categories.length} categories, ${nominees} nominees`;
+    $("preview").textContent = `${categories.length} categories, ${nominees} nominees, ${allowedEmails?.length ?? 0} allowed attendees`;
   } catch {
     $("preview").textContent = "This isn't valid JSON yet.";
   }
@@ -45,9 +45,8 @@ async function init() {
     const params = new URLSearchParams(location.search);
     const returnTo = params.get("returnTo");
     if (returnTo) $("signin-link").href = `/auth/google?returnTo=${encodeURIComponent(returnTo)}`;
-    const error = params.get("error");
-    if (error === "denied") $("signin-error").textContent = "That Google account isn't allowed to use the admin.";
-    if (error === "signin") $("signin-error").textContent = "Sign-in failed. Please try again.";
+    if (me.status === 403) $("signin-error").textContent = `${(await me.json()).email} isn't an admin. Sign in with another account.`;
+    if (params.get("error") === "signin") $("signin-error").textContent = "Sign-in failed. Please try again.";
     return;
   }
   $("app").hidden = false;

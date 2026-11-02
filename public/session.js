@@ -7,14 +7,15 @@ const STAGE_TEXT = {
   waiting: ["Category shown", "They see the category name. Nominees are hidden."],
   voting: ["Voting open", "They see the nominees and can vote."],
   closed: ["Voting closed", "They see that voting is closed. Nominees are hidden again."],
+  winner: ["Winner on big display", "They still see that voting is closed. Only the big display shows the winner."],
   finished: ["Finished", "They see a thank-you message."],
 };
 
 function renderCurrentWinner(state) {
-  const current = state.stage === "closed" ? state.winners.find((w) => w.position === state.position) : null;
+  const current = state.stage === "closed" || state.stage === "winner" ? state.winners.find((w) => w.position === state.position) : null;
   $("winner").hidden = !current;
   if (!current) return;
-  const names = current.winners;
+  const names = current.winners.map((winner) => winner.name);
   $("winner-label").textContent = names.length > 1 ? "Winners" : "Winner";
   $("winner-names").replaceChildren(
     ...(names.length ? names : ["No votes"]).map((name) => {
@@ -37,7 +38,7 @@ function renderWinners(state) {
       title.className = "eyebrow";
       title.textContent = category.category;
       const names = document.createElement("strong");
-      names.textContent = category.winners.length ? category.winners.join(" & ") : "No votes";
+      names.textContent = category.winners.length ? category.winners.map((winner) => winner.name).join(" & ") : "No votes";
       li.append(title, names);
       return li;
     }),
@@ -57,7 +58,7 @@ function render(state) {
   $("category").textContent = finished ? "All categories done" : state.category;
   $("progress").textContent = finished
     ? `${state.total} categories`
-    : `Category ${state.position} of ${state.total} · ${state.voteCount} votes`;
+    : `Category ${state.position} of ${state.total} · ${state.voteCount} of ${state.allowedCount} votes`;
 
   // Only the moves that make sense right now, so the right one is easy to hit on a phone.
   $("actions").hidden = finished;
@@ -65,19 +66,26 @@ function render(state) {
   $("reveal").hidden = !canReveal;
   $("reveal").textContent = `Show next nominee (${state.revealedCount + 1} of ${total})`;
   const lobby = state.stage === "lobby";
-  $("start").hidden = state.stage === "voting" || canReveal || lobby;
+  const closed = state.stage === "closed";
+  const shown = state.stage === "winner";
+  const current = state.winners.find((w) => w.position === state.position);
+  $("show-winner").hidden = !closed;
+  $("show-winner").disabled = !current || current.winners.length === 0;
+  $("start").hidden = state.stage === "voting" || canReveal || lobby || shown;
   $("start").disabled = total === 0;
   $("start").textContent = state.stage === "closed" ? "Reopen voting" : "Start voting";
   $("start").className = state.stage === "closed" ? "secondary" : "";
   $("stop").hidden = state.stage !== "voting";
   $("next").hidden = state.stage === "voting";
-  $("next").className = state.stage === "closed" || lobby ? "" : "secondary";
+  $("next").className = shown || lobby ? "" : "secondary";
   $("next").textContent = lobby ? "Show first category" : state.position === state.total ? "Finish session" : "Next category";
   // The primary action comes first.
-  if (state.stage === "closed" || lobby) $("actions").prepend($("next"));
+  if (closed) $("actions").prepend($("show-winner"));
+  else if (shown || lobby) $("actions").prepend($("next"));
   else $("actions").prepend(canReveal ? $("reveal") : $("start"));
 
   $("nominee-section").hidden = finished;
+  $("add-form").hidden = shown;
   $("nominees").replaceChildren(
     ...state.nominees.map((nominee, index) => {
       const li = document.createElement("li");
@@ -93,6 +101,7 @@ function render(state) {
   );
 
   $("qr-link").href = state.qrPageUrl;
+  $("display-link").href = state.displayUrl;
   $("url").href = state.attendeeUrl;
   $("url").textContent = state.attendeeUrl.replace(/^https?:\/\//, "");
 
@@ -102,7 +111,7 @@ function render(state) {
 
 async function refresh() {
   const res = await fetch(api);
-  if (res.status === 401) {
+  if (res.status === 401 || res.status === 403) {
     location.href = `/admin?returnTo=${encodeURIComponent(location.pathname)}`;
     return;
   }
@@ -128,12 +137,16 @@ async function act(path, body) {
 }
 
 $("reveal").addEventListener("click", () => act("reveal"));
+$("show-winner").addEventListener("click", () => act("show-winner"));
 $("start").addEventListener("click", () => act("start"));
 $("stop").addEventListener("click", () => act("stop"));
 $("next").addEventListener("click", () => act("next"));
 $("add-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (await act("nominees", { name: $("nominee-name").value })) $("nominee-name").value = "";
+  if (await act("nominees", { name: $("nominee-name").value, pictureUrl: $("nominee-picture").value.trim() })) {
+    $("nominee-name").value = "";
+    $("nominee-picture").value = "";
+  }
 });
 
 refresh();
