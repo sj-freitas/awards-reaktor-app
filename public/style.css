@@ -129,6 +129,8 @@ ul.plain li:first-child { border-top: 0; }
 .slide-winners.tied .slide-winner { flex-direction: column; gap: 2vh; }
 .slide-winners.tied .picture { flex: 1; min-height: 0; height: auto; max-width: 100%; }
 .slide-winners.tied .display { font-size: 6vh; text-align: center; flex: none; }
+#confetti { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 5; }
+.confetti { position: absolute; left: 50%; top: 50%; line-height: 1; }
 @keyframes slide-in { from { opacity: 0; transform: translateY(2vh); } }
 @keyframes card-in { from { opacity: 0; transform: scale(.94); } }
 @keyframes winner-in { from { opacity: 0; transform: scale(.9); } }

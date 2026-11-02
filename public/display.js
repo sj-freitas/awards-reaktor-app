@@ -85,6 +85,7 @@ function renderWinners(state) {
   }
   const status = showSlide(head, winners);
   status.textContent = state.winners.length > 1 ? "It's a tie: shared award" : "The winner is";
+  launchConfetti();
 }
 
 function renderCentered(key, build) {
