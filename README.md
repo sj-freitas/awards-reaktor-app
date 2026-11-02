@@ -42,6 +42,10 @@ Each category moves through these stages, controlled by the admin:
 
 `allowedEmails` is required and lists who can vote in that session. `pictureUrl` is optional and must be https. Nominees without one, or whose picture fails to load, show the Reaktor logo. A category can have at most 6 nominees. A nominee added by hand during the session takes the first picture the session has for that name, or a default picture if there is none.
 
+## Clean slate
+
+`supabase/scripts/delete_all_sessions.sql` deletes every session along with its categories, nominees, votes and attendee lists. It can't be undone.
+
 ## Development
 
 ```bash

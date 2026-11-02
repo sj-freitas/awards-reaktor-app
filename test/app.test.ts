@@ -402,6 +402,22 @@ describe("voting flow", () => {
   });
 });
 
+describe("clean slate script", () => {
+  it("removes every session and everything belonging to them", async () => {
+    const { id, code } = await createSession();
+    await startVoting(id);
+    const { nominees } = (await attendee().get(`/api/s/${code}`)).body;
+    await attendee().post(`/api/s/${code}/vote`).send({ nomineeId: nominees[0].id }).expect(200);
+
+    await pglite.exec(readFileSync("supabase/scripts/delete_all_sessions.sql", "utf8"));
+
+    for (const table of ["sessions", "categories", "nominees", "votes", "session_attendees"]) {
+      const { rows } = await pglite.query<{ count: number }>(`select count(*)::int as count from ${table}`);
+      expect(rows[0].count).toBe(0);
+    }
+  });
+});
+
 describe("big display", () => {
   async function closedVote() {
     const { id, code } = await createSession();
