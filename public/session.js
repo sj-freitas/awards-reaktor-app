@@ -85,7 +85,7 @@ function render(state) {
   else $("actions").prepend(canReveal ? $("reveal") : $("start"));
 
   $("nominee-section").hidden = finished;
-  $("add-form").hidden = shown;
+  $("add-form").hidden = shown || total >= 6;
   $("nominees").replaceChildren(
     ...state.nominees.map((nominee, index) => {
       const li = document.createElement("li");

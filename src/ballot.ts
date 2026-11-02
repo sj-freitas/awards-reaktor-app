@@ -4,6 +4,7 @@ export interface Ballot {
 }
 
 const MAX_NAME_LENGTH = 200;
+export const MAX_NOMINEES = 6;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function cleanName(value: unknown): string | null {
@@ -51,6 +52,9 @@ export function parseBallot(input: unknown): Ballot | string {
 
     const rawNominees = (category as { nominees?: unknown }).nominees ?? [];
     if (!Array.isArray(rawNominees)) return `Category "${name}": "nominees" must be an array.`;
+    if (rawNominees.length > MAX_NOMINEES) {
+      return `Category "${name}" has ${rawNominees.length} nominees. The maximum is ${MAX_NOMINEES}.`;
+    }
 
     const seenNominees = new Set<string>();
     const nominees: Ballot["categories"][number]["nominees"] = [];

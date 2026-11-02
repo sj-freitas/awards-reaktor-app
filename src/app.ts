@@ -14,7 +14,7 @@ import {
   userCookieValue,
   voterId,
 } from "./auth.js";
-import { cleanName, cleanPictureUrl, parseBallot } from "./ballot.js";
+import { MAX_NOMINEES, cleanName, cleanPictureUrl, parseBallot } from "./ballot.js";
 
 export interface Db {
   query<T = any>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
@@ -475,11 +475,12 @@ export function createApp(db: Db, config: Config) {
          from sessions s
          join categories c on c.session_id = s.id and c.position = s.current_position
         where s.id = $1 and s.stage not in ('winner', 'finished')
+          and (select count(*) from nominees where category_id = c.id) < $4
        on conflict (category_id, lower(name)) do nothing
        returning id`,
-      [req.params.id, name, pictureUrl],
+      [req.params.id, name, pictureUrl, MAX_NOMINEES],
     );
-    await respondWithState(req.params.id, res, rows.length ? undefined : `Couldn't add "${name}": it's already nominated, or the winner has been shown.`);
+    await respondWithState(req.params.id, res, rows.length ? undefined : `Couldn't add "${name}": it's already nominated, the category has ${MAX_NOMINEES} nominees, or the winner has been shown.`);
   });
 
   // --- Pages ---

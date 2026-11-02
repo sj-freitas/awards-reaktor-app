@@ -40,7 +40,7 @@ Each category moves through these stages, controlled by the admin:
 }
 ```
 
-`allowedEmails` is required and lists who can vote in that session. `pictureUrl` is optional and must be https.
+`allowedEmails` is required and lists who can vote in that session. `pictureUrl` is optional and must be https. A category can have at most 6 nominees.
 
 ## Development
 

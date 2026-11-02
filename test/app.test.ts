@@ -169,6 +169,22 @@ describe("ballot loading", () => {
     expect((await load({ allowedEmails: ["nope"], categories })).body.error).toContain("valid email");
   });
 
+  it("allows at most 6 nominees per category", async () => {
+    const nominees = (count: number) => Array.from({ length: count }, (_, i) => `Person ${i}`);
+    const categories = (count: number) => [{ name: "A", nominees: nominees(count) }];
+    expect((await load({ allowedEmails: ["a@b.co"], categories: categories(6) })).status).toBe(201);
+    const tooMany = await load({ allowedEmails: ["a@b.co"], categories: categories(7) });
+    expect(tooMany.status).toBe(400);
+    expect(tooMany.body.error).toContain("maximum is 6");
+  });
+
+  it("stops manually added nominees at 6 too", async () => {
+    const created = await load({ allowedEmails: ["a@b.co"], categories: [{ name: "A", nominees: ["1", "2", "3", "4", "5"] }] });
+    const url = `/api/admin/sessions/${created.body.id}/nominees`;
+    await admin("post", url).send({ name: "6" }).expect(200);
+    await admin("post", url).send({ name: "7" }).expect(409);
+  });
+
   it("only accepts https picture URLs", async () => {
     for (const pictureUrl of ["http://example.com/a.jpg", "javascript:alert(1)", "not a url"]) {
       const res = await load({ allowedEmails: ["a@b.co"], categories: [{ name: "A", nominees: [{ name: "B", pictureUrl }] }] });
