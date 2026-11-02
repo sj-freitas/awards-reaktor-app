@@ -64,7 +64,7 @@ function render(state) {
   $("actions").hidden = finished;
   const canReveal = state.stage === "waiting" && state.revealedCount < total;
   $("reveal").hidden = !canReveal;
-  $("reveal").textContent = `Show next nominee (${state.revealedCount + 1} of ${total})`;
+  if (canReveal) $("reveal").textContent = `Show ${state.nominees[state.revealedCount].name} (${state.revealedCount + 1} of ${total})`;
   const lobby = state.stage === "lobby";
   const closed = state.stage === "closed";
   const shown = state.stage === "winner";
